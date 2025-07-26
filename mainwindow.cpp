@@ -324,7 +324,7 @@ void MainWindow::createTestPage() {
     answerEdit = new QLineEdit(testPage);
     answerEdit->setPlaceholderText("请输入答案...");
     answerEdit->setStyleSheet("font-size: 24px; padding: 10px;");
-    answerEdit->setValidator(new QIntValidator(0, 100, this));
+    answerEdit->setValidator(new QIntValidator(0, 100000000, this));
     answerEdit->setEnabled(false);  // 初始禁用
 
     // 添加回车键监听
