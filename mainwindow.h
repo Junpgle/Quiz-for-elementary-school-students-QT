@@ -26,7 +26,13 @@
 #include <QIntValidator>
 #include <QComboBox>
 #include <QTextEdit>
+#include <QRandomGenerator>
 
+struct LeaderboardEntry {
+    QString username;  // 用户名
+    int score;         // 得分
+    int timeSeconds;   // 做题时间（秒）
+};
 
 class Question {
 public:
@@ -51,6 +57,7 @@ public:
 
     Student();
     void reset();
+    void resetAnswers();
     void saveTestRecord();
     QString getUsername() const;
 };
@@ -109,9 +116,12 @@ private:
     void finishTest();
     void updateQuestionTable();
     void loadLeaderboard();
-    void updateLeaderboard();
+    void updateLeaderboard(int timeSeconds);
     void updateLeaderboardTable();
     void loadHistory();
+
+    // 在MainWindow类中添加排序函数
+    void sortLeaderboard();
 
 
     QVBoxLayout *mainLayout;
@@ -135,7 +145,7 @@ private:
     // 排行榜页面组件
     QWidget *leaderboardPage;
     QTableWidget *leaderboardTable;
-    QList<QPair<QString, int>> leaderboardData;
+    QList<LeaderboardEntry> leaderboardData;
 
     // 历史记录页面组件
     QWidget *historyPage;
@@ -143,100 +153,125 @@ private:
     QTextEdit *historyTextEdit;
 };
 
+
 class AddQuestionDialog : public QDialog {
     Q_OBJECT
+private:
+    Question question;
+    QLineEdit *num1Edit;
+    QComboBox *operatorCombo;
+    QLineEdit *num2Edit;
+    QLineEdit *answerEdit;
+
 public:
-    explicit AddQuestionDialog(QWidget *parent = nullptr) : QDialog(parent) {
-        setWindowTitle("添加手动试题");
-        setFixedSize(300, 200);
+    AddQuestionDialog(QWidget *parent = nullptr) : QDialog(parent) {
+        setWindowTitle("添加试题");
+        setFixedSize(300, 250);
 
-        // 创建输入控件
-        num1Edit = new QLineEdit(this);
-        num1Edit->setValidator(new QIntValidator(0, 100, this)); // 限制为0-100的整数
-        num1Edit->setPlaceholderText("请输入第一个数字");
+        QVBoxLayout *layout = new QVBoxLayout(this);
 
-        num2Edit = new QLineEdit(this);
+        // 数字1
+        QHBoxLayout *num1Layout = new QHBoxLayout();
+        num1Layout->addWidget(new QLabel("数字1:"));
+        num1Edit = new QLineEdit();
+        num1Edit->setValidator(new QIntValidator(0, 100, this));
+        num1Layout->addWidget(num1Edit);
+        layout->addLayout(num1Layout);
+
+        // 运算符
+        QHBoxLayout *opLayout = new QHBoxLayout();
+        opLayout->addWidget(new QLabel("运算符:"));
+        operatorCombo = new QComboBox();
+        operatorCombo->addItems({"+", "-"});
+        opLayout->addWidget(operatorCombo);
+        layout->addLayout(opLayout);
+
+        // 数字2
+        QHBoxLayout *num2Layout = new QHBoxLayout();
+        num2Layout->addWidget(new QLabel("数字2:"));
+        num2Edit = new QLineEdit();
         num2Edit->setValidator(new QIntValidator(0, 100, this));
-        num2Edit->setPlaceholderText("请输入第二个数字");
+        num2Layout->addWidget(num2Edit);
+        layout->addLayout(num2Layout);
 
-        operatorCombo = new QComboBox(this);
-        operatorCombo->addItems({"+", "-", "*", "/"}); // 支持加减乘除
+        // 答案
+        QHBoxLayout *answerLayout = new QHBoxLayout();
+        answerLayout->addWidget(new QLabel("答案:"));
+        answerEdit = new QLineEdit();
+        answerEdit->setValidator(new QIntValidator(0, 100, this));
+        answerLayout->addWidget(answerEdit);
+        layout->addLayout(answerLayout);
 
-        // 布局
-        QFormLayout *layout = new QFormLayout(this);
-        layout->addRow("第一个数字:", num1Edit);
-        layout->addRow("运算符:", operatorCombo);
-        layout->addRow("第二个数字:", num2Edit);
+        // 随机生成按钮
+        QPushButton *randomButton = new QPushButton("随机生成一题");
+        connect(randomButton, &QPushButton::clicked, this, &AddQuestionDialog::generateRandomQuestion);
+        layout->addWidget(randomButton);
 
-        // 确认/取消按钮
-        QHBoxLayout *btnLayout = new QHBoxLayout();
-        QPushButton *okBtn = new QPushButton("确认添加", this);
-        QPushButton *cancelBtn = new QPushButton("取消", this);
-        btnLayout->addWidget(okBtn);
-        btnLayout->addWidget(cancelBtn);
-        layout->addRow(btnLayout);
+        // 确认和取消按钮
+        QHBoxLayout *buttonLayout = new QHBoxLayout();
+        QPushButton *okButton = new QPushButton("确认");
+        QPushButton *cancelButton = new QPushButton("取消");
+        buttonLayout->addWidget(okButton);
+        buttonLayout->addWidget(cancelButton);
+        layout->addLayout(buttonLayout);
 
-        connect(okBtn, &QPushButton::clicked, this, &AddQuestionDialog::validateInput);
-        connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+        connect(okButton, &QPushButton::clicked, this, &AddQuestionDialog::accept);
+        connect(cancelButton, &QPushButton::clicked, this, &AddQuestionDialog::reject);
     }
 
-    // 获取输入的试题信息
     Question getQuestion() const {
         return question;
     }
 
 private slots:
-    void validateInput() {
-        // 验证输入不为空
-        if (num1Edit->text().isEmpty() || num2Edit->text().isEmpty()) {
-            QMessageBox::warning(this, "输入错误", "数字不能为空！");
-            return;
+    void generateRandomQuestion() {
+        // 随机生成1-50的数字
+        int num1 = QRandomGenerator::global()->bounded(50) + 1;
+        int num2 = QRandomGenerator::global()->bounded(50) + 1;
+        bool isAddition = QRandomGenerator::global()->bounded(2) == 0;
+
+        // 确保减法不会出现负数
+        if (!isAddition && num1 < num2) {
+            std::swap(num1, num2);
         }
 
-        // 解析输入
-        int num1 = num1Edit->text().toInt();
-        int num2 = num2Edit->text().toInt();
-        QChar op = operatorCombo->currentText().at(0);
+        // 计算答案
+        int answer = isAddition ? (num1 + num2) : (num1 - num2);
 
-        // 验证特殊运算符（减法/除法）的合法性
-        if (op == '-' && num1 < num2) {
-            QMessageBox::warning(this, "输入错误", "减法时第一个数字不能小于第二个数字！");
-            return;
-        }
-        if (op == '/') {
-            if (num2 == 0) {
-                QMessageBox::warning(this, "输入错误", "除数不能为0！");
-                return;
-            }
-            if (num1 % num2 != 0) {
-                QMessageBox::warning(this, "输入错误", "除法结果必须为整数！");
-                return;
-            }
-        }
+        // 更新UI
+        num1Edit->setText(QString::number(num1));
+        operatorCombo->setCurrentIndex(isAddition ? 0 : 1);
+        num2Edit->setText(QString::number(num2));
+        answerEdit->setText(QString::number(answer));
 
-        // 计算正确答案
-        int correctAnswer = 0;
-        switch (op.toLatin1()) {
-        case '+': correctAnswer = num1 + num2; break;
-        case '-': correctAnswer = num1 - num2; break;
-        case '*': correctAnswer = num1 * num2; break;
-        case '/': correctAnswer = num1 / num2; break;
-        }
-
-        // 保存试题信息
+        // 更新内部问题对象
         question.num1 = num1;
+        question.operatorSymbol = isAddition ? '+' : '-';
         question.num2 = num2;
-        question.operatorSymbol = op.toLatin1();
-        question.correctAnswer = correctAnswer;
-
-        accept(); // 关闭对话框并返回成功
+        question.correctAnswer = answer;
     }
 
-private:
-    QLineEdit *num1Edit;
-    QLineEdit *num2Edit;
-    QComboBox *operatorCombo;
-    Question question; // 用于存储生成的试题
+    void accept() override {
+        // 验证输入
+        if (num1Edit->text().isEmpty() || num2Edit->text().isEmpty() || answerEdit->text().isEmpty()) {
+            QMessageBox::warning(this, "输入错误", "请填写所有字段");
+            return;
+        }
+
+        // 更新问题对象
+        question.num1 = num1Edit->text().toInt();
+        question.operatorSymbol = operatorCombo->currentText()[0].toLatin1();
+        question.num2 = num2Edit->text().toInt();
+        question.correctAnswer = answerEdit->text().toInt();
+
+        // 确保减法答案不为负
+        if (question.operatorSymbol == '-' && question.num1 < question.num2) {
+            QMessageBox::warning(this, "输入错误", "减法运算中，第一个数不能小于第二个数");
+            return;
+        }
+
+        QDialog::accept();
+    }
 };
 
 #endif // MAINWINDOW_H

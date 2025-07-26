@@ -24,6 +24,14 @@ void Student::reset() {
     testQuestions.clear();
 }
 
+void Student::resetAnswers() {
+    for (auto& q : testQuestions) {
+        q.userAnswer = 0;
+        q.isAnswered = false;
+    }
+    score = 0;  // 重置分数
+}
+
 void Student::saveTestRecord() {
     QString filename = username + ".txt";
     QFile file(filename);
@@ -245,13 +253,33 @@ void MainWindow::createMenuButtons() {
     QHBoxLayout *buttonLayout = new QHBoxLayout();
 
     QPushButton *startTestButton = createMenuButton("开始答题", "background-color: #3498db; color: white;");
+    QPushButton *refreshButton_tab = new QPushButton("刷新试题", this); // 修改：指定父对象为this
     QPushButton *editQuestionsButton = createMenuButton("编辑试题", "background-color: #2ecc71; color: white;");
     QPushButton *leaderboardButton = createMenuButton("排行榜", "background-color: #e74c3c; color: white;");
     QPushButton *historyButton = createMenuButton("历史记录", "background-color: #9b59b6; color: white;");
     QPushButton *switchAccountButton = createMenuButton("切换账号", "background-color: #f39c12; color: white;");
     QPushButton *exitButton = createMenuButton("退出系统", "background-color: #7f8c8d; color: white;");
 
+    // 设置刷新按钮样式，与其他按钮保持一致
+    refreshButton_tab->setStyleSheet("QPushButton { padding: 15px; font-size: 16px; border-radius: 8px; background-color: #f39c12; color: white; }"
+                                     "QPushButton:hover { opacity: 0.9; }");
+    refreshButton_tab->setCursor(Qt::PointingHandCursor);
+
     connect(startTestButton, &QPushButton::clicked, this, &MainWindow::onStartTestClicked);
+
+    // 修正信号槽连接语法
+    connect(refreshButton_tab, &QPushButton::clicked, this, [this]() {
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::question(this, "确认刷新",
+                                      "确定要重新生成试题吗？当前试题将被替换。",
+                                      QMessageBox::Yes|QMessageBox::No);
+        if (reply == QMessageBox::Yes) {
+            generateQuestions();
+            updateQuestionTable();
+            QMessageBox::information(this, "刷新成功", "已重新生成10道试题");
+        }
+    });
+
     connect(editQuestionsButton, &QPushButton::clicked, this, &MainWindow::onEditQuestionsClicked);
     connect(leaderboardButton, &QPushButton::clicked, this, &MainWindow::onLeaderboardClicked);
     connect(historyButton, &QPushButton::clicked, this, &MainWindow::onHistoryClicked);
@@ -259,6 +287,7 @@ void MainWindow::createMenuButtons() {
     connect(exitButton, &QPushButton::clicked, this, &MainWindow::onExitClicked);
 
     buttonLayout->addWidget(startTestButton);
+    buttonLayout->addWidget(refreshButton_tab);
     buttonLayout->addWidget(editQuestionsButton);
     buttonLayout->addWidget(leaderboardButton);
     buttonLayout->addWidget(historyButton);
@@ -356,24 +385,40 @@ void MainWindow::createQuestionEditPage() {
     QPushButton *deleteButton = new QPushButton("删除题目", questionEditPage);
     QPushButton *saveButton = new QPushButton("保存试题", questionEditPage);
     QPushButton *loadButton = new QPushButton("加载试题", questionEditPage);
+    // 添加刷新试题按钮
+    QPushButton *refreshButton = new QPushButton("刷新试题", questionEditPage);
     QPushButton *backButton = new QPushButton("返回主菜单", questionEditPage);
 
     addButton->setStyleSheet("padding: 10px; background-color: #2ecc71; color: white;");
     deleteButton->setStyleSheet("padding: 10px; background-color: #e74c3c; color: white;");
     saveButton->setStyleSheet("padding: 10px; background-color: #3498db; color: white;");
     loadButton->setStyleSheet("padding: 10px; background-color: #9b59b6; color: white;");
+    refreshButton->setStyleSheet("padding: 10px; background-color: #f39c12; color: white;");
     backButton->setStyleSheet("padding: 10px; background-color: #f39c12; color: white;");
 
     connect(addButton, &QPushButton::clicked, this, &MainWindow::onAddQuestionClicked);
     connect(deleteButton, &QPushButton::clicked, this, &MainWindow::onDeleteQuestionClicked);
     connect(saveButton, &QPushButton::clicked, this, &MainWindow::onSaveQuestionsClicked);
     connect(loadButton, &QPushButton::clicked, this, &MainWindow::onLoadQuestionsClicked);
+    // 连接刷新试题按钮的信号槽
+    connect(refreshButton, &QPushButton::clicked, this, [this]() {
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::question(this, "确认刷新",
+                                      "确定要重新生成试题吗？当前试题将被替换。",
+                                      QMessageBox::Yes|QMessageBox::No);
+        if (reply == QMessageBox::Yes) {
+            generateQuestions();
+            updateQuestionTable();
+            QMessageBox::information(this, "刷新成功", "已重新生成10道试题");
+        }
+    });
     connect(backButton, &QPushButton::clicked, this, [this]() { stackedWidget->setCurrentIndex(0); });
 
     buttonLayout->addWidget(addButton);
     buttonLayout->addWidget(deleteButton);
     buttonLayout->addWidget(saveButton);
     buttonLayout->addWidget(loadButton);
+    buttonLayout->addWidget(refreshButton);  // 添加到布局
     buttonLayout->addWidget(backButton);
 
     layout->addWidget(questionTable);
@@ -386,8 +431,9 @@ void MainWindow::createLeaderboardPage() {
     leaderboardPage = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout(leaderboardPage);
 
-    leaderboardTable = new QTableWidget(0, 3, this);
-    QStringList headers = {"排名", "用户名", "得分"};
+    // 表格改为4列：排名、用户名、得分、用时（秒）
+    leaderboardTable = new QTableWidget(0, 4, this);
+    QStringList headers = {"排名", "用户名", "得分", "用时（秒）"};
     leaderboardTable->setHorizontalHeaderLabels(headers);
     leaderboardTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     leaderboardTable->verticalHeader()->setVisible(false);
@@ -488,11 +534,15 @@ bool MainWindow::validateAnswer() {
 
     int answer = answerEdit->text().toInt();
     Question &q = currentStudent.testQuestions[currentQuestionIndex];
-    q.userAnswer = answer;
-    q.isAnswered = true;
 
-    if (q.userAnswer == q.correctAnswer) {
-        currentStudent.score += 10;
+    // 只有当答案未被回答过时，才更新答案和计分
+    if (!q.isAnswered) {
+        q.userAnswer = answer;
+        q.isAnswered = true;
+
+        if (q.userAnswer == q.correctAnswer) {
+            currentStudent.score += 10;
+        }
     }
 
     return true;
@@ -501,17 +551,21 @@ bool MainWindow::validateAnswer() {
 void MainWindow::finishTest() {
     currentStudent.endTime = QDateTime::currentDateTime();
 
+    // 计算做题时间（秒）：结束时间 - 开始时间
+    int timeSeconds = currentStudent.startTime.secsTo(currentStudent.endTime);
+
     // 保存测试记录
     currentStudent.saveTestRecord();
 
-    // 更新排行榜
-    updateLeaderboard();
+    // 更新排行榜（传入用时）
+    updateLeaderboard(timeSeconds);  // 修改参数，传入时间
 
-    // 显示结果
+    // 显示结果（保持不变）
     QString result;
     result += "测试完成!\n";
     result += "用户名: " + currentStudent.username + "\n";
     result += "得分: " + QString::number(currentStudent.score) + "/100\n";
+    result += "用时: " + QString::number(timeSeconds) + "秒\n";  // 显示用时
     result += "评价: ";
 
     if (currentStudent.score >= 90) {
@@ -528,14 +582,13 @@ void MainWindow::finishTest() {
 
     QMessageBox::information(this, "测试结果", result);
 
-    // 重置测试页面状态
+    // 重置测试页面状态（保持不变）
     startHintLabel->setVisible(true);
     questionLabel->setVisible(false);
     progressLabel->setVisible(false);
     answerEdit->setEnabled(false);
     prevButton->setEnabled(false);
     nextButton->setEnabled(false);
-
 
     stackedWidget->setCurrentIndex(0);
 }
@@ -565,6 +618,20 @@ void MainWindow::updateQuestionTable() {
     }
 }
 
+// 在MainWindow类中添加排序函数
+void MainWindow::sortLeaderboard() {
+    std::sort(leaderboardData.begin(), leaderboardData.end(),
+              [](const LeaderboardEntry& a, const LeaderboardEntry& b) {
+                  if (a.score != b.score) {
+                      // 得分不同：高分在前
+                      return a.score > b.score;
+                  } else {
+                      // 得分相同：用时少的在前
+                      return a.timeSeconds < b.timeSeconds;
+                  }
+              });
+}
+
 void MainWindow::loadLeaderboard() {
     leaderboardData.clear();
 
@@ -572,49 +639,53 @@ void MainWindow::loadLeaderboard() {
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
         while (!in.atEnd()) {
-            QString line = in.readLine();
+            QString line = in.readLine().trimmed();
             QStringList parts = line.split(" ");
-            if (parts.size() == 2) {
-                leaderboardData.append(qMakePair(parts[0], parts[1].toInt()));
+            // 解析格式：用户名 得分 时间（秒）
+            if (parts.size() == 3) {
+                LeaderboardEntry entry;
+                entry.username = parts[0];
+                entry.score = parts[1].toInt();
+                entry.timeSeconds = parts[2].toInt();
+                leaderboardData.append(entry);
             }
         }
         file.close();
     }
 
-    // 按分数排序
-    std::sort(leaderboardData.begin(), leaderboardData.end(),
-              [](const QPair<QString, int> &a, const QPair<QString, int> &b) {
-                  return a.second > b.second;
-              });
-
-    updateLeaderboardTable();
+    // 按新规则排序（见步骤3）
+    sortLeaderboard();
+    updateLeaderboardTable();  // 更新表格显示
 }
 
-void MainWindow::updateLeaderboard() {
-    // 添加当前用户成绩
-    leaderboardData.append(qMakePair(currentStudent.username, currentStudent.score));
+// 修改函数参数，接收用时（秒）
+void MainWindow::updateLeaderboard(int timeSeconds) {
+    // 添加当前用户成绩和用时
+    LeaderboardEntry newEntry;
+    newEntry.username = currentStudent.username;
+    newEntry.score = currentStudent.score;
+    newEntry.timeSeconds = timeSeconds;  // 传入用时
+    leaderboardData.append(newEntry);
 
-    // 按分数排序
-    std::sort(leaderboardData.begin(), leaderboardData.end(),
-              [](const QPair<QString, int> &a, const QPair<QString, int> &b) {
-                  return a.second > b.second;
-              });
+    // 按新规则排序（先按得分降序，得分相同按用时升序）
+    sortLeaderboard();
 
     // 只保留前10名
     if (leaderboardData.size() > 10) {
         leaderboardData.resize(10);
     }
 
-    // 保存到文件
+    // 保存到文件（格式：用户名 得分 用时）
     QFile file("leaderboard.txt");
     if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QTextStream out(&file);
         for (const auto &entry : leaderboardData) {
-            out << entry.first << " " << entry.second << "\n";
+            out << entry.username << " " << entry.score << " " << entry.timeSeconds << "\n";
         }
         file.close();
     }
 
+    // 更新表格显示
     updateLeaderboardTable();
 }
 
@@ -624,28 +695,38 @@ void MainWindow::updateLeaderboardTable() {
     for (int i = 0; i < leaderboardData.size(); ++i) {
         const auto &entry = leaderboardData[i];
 
+        // 排名
         QTableWidgetItem *rankItem = new QTableWidgetItem(QString::number(i+1));
-        QTableWidgetItem *userItem = new QTableWidgetItem(entry.first);
-        QTableWidgetItem *scoreItem = new QTableWidgetItem(QString::number(entry.second));
+        // 用户名
+        QTableWidgetItem *userItem = new QTableWidgetItem(entry.username);
+        // 得分
+        QTableWidgetItem *scoreItem = new QTableWidgetItem(QString::number(entry.score));
+        // 用时（秒）
+        QTableWidgetItem *timeItem = new QTableWidgetItem(QString::number(entry.timeSeconds));
 
-        // 设置样式
+        // 前三名高亮样式
         if (i == 0) {
-            rankItem->setBackground(QColor(255, 215, 0));
+            rankItem->setBackground(QColor(255, 215, 0));  // 金色
             userItem->setBackground(QColor(255, 215, 0));
             scoreItem->setBackground(QColor(255, 215, 0));
+            timeItem->setBackground(QColor(255, 215, 0));
         } else if (i == 1) {
-            rankItem->setBackground(QColor(192, 192, 192));
+            rankItem->setBackground(QColor(192, 192, 192));  // 银色
             userItem->setBackground(QColor(192, 192, 192));
             scoreItem->setBackground(QColor(192, 192, 192));
+            timeItem->setBackground(QColor(192, 192, 192));
         } else if (i == 2) {
-            rankItem->setBackground(QColor(205, 127, 50));
+            rankItem->setBackground(QColor(205, 127, 50));  // 铜色
             userItem->setBackground(QColor(205, 127, 50));
             scoreItem->setBackground(QColor(205, 127, 50));
+            timeItem->setBackground(QColor(205, 127, 50));
         }
 
+        // 插入表格
         leaderboardTable->setItem(i, 0, rankItem);
         leaderboardTable->setItem(i, 1, userItem);
         leaderboardTable->setItem(i, 2, scoreItem);
+        leaderboardTable->setItem(i, 3, timeItem);
     }
 }
 
@@ -674,10 +755,13 @@ void MainWindow::loadHistory() {
     }
 }
 
-// 槽函数实现
 void MainWindow::onStartTestClicked() {
-
-    if (currentStudent.testQuestions.isEmpty()) {
+    // 如果已有题目（之前答过题），清空答案但保留题目
+    if (!currentStudent.testQuestions.isEmpty()) {
+        currentStudent.resetAnswers();
+    }
+    // 如果没有题目，生成新题目
+    else {
         QMessageBox::information(this, "提示", "当前没有试题，将自动生成10道题");
         generateQuestions();
     }
@@ -694,7 +778,6 @@ void MainWindow::onStartTestClicked() {
     answerEdit->setEnabled(true);
     prevButton->setEnabled(true);
     nextButton->setEnabled(true);
-
 
     showQuestion(currentQuestionIndex);
 }
